@@ -18,5 +18,11 @@
     "background": {
         "service_worker": "service-worker.js",
         "type": "module"
-    }
+    },
+    "web_accessible_resources": [
+        {
+            "resources": ["/pages/chat.html"],
+            "matches": ["<all_urls>"]
+        }
+    ]
 }

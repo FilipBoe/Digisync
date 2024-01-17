@@ -1,16 +1,24 @@
 import "./socket.io.min.js";
 
 let socket;
-let connectedUsersCount = 0;
+let currentRoom;
+let myData;
 
-const resetStorage = () => {
-    connectedUsersCount = 0;
+const getResp = (event, data) => {
+    return new Promise((resolve) => {
+        socket.emit(event, data, (resp) => {
+            resolve(resp);
+        });
+    });
 };
 
-const cleanUrl = (url) => {
-    const urlUrl = new URL(url);
+const createBadge = () => {
+    chrome.action.setBadgeText({ text: "ON" });
+    chrome.action.setBadgeBackgroundColor({ color: "#4688F1" });
+};
 
-    return `${urlUrl.origin}${urlUrl.pathname}`;
+const destroyBadge = () => {
+    chrome.action.setBadgeText({ text: "" });
 };
 
 if (!socket || !socket.connected) {
@@ -19,262 +27,186 @@ if (!socket || !socket.connected) {
     });
 
     socket.on("connect", () => {
-        console.log(socket.id);
-    });
-
-    socket.on("host-url-redirect", async (url) => {
-        const tabs = await chrome.tabs.query({});
-
-        const fromUrl = socket.bookUrl ?? url;
-        const toUrl = url;
-
-        let isOpen = false;
-
-        tabs.forEach((tab) => {
-            if (tab.id === socket.tabId) {
-                chrome.tabs.update(tab.id, { url: toUrl, active: true });
-
-                socket.bookUrl = cleanUrl(toUrl);
-                socket.bookUrlDirty = toUrl;
-
-                isOpen = true;
-            }
-        });
-
-        if (!isOpen) {
-            const newTab = await chrome.tabs.create({ url: toUrl });
-
-            socket.bookUrl = toUrl;
-            socket.tabId = newTab.id;
-
-            console.log(newTab);
-        }
-    });
-
-    socket.on("host-page-content-change", async (content) => {
-        const tabs = await chrome.tabs.query({});
-
-        tabs.forEach((tab) => {
-            if (tab.id !== socket.tabId) return;
-
-            chrome.scripting.executeScript({
-                target: { tabId: tab.id },
-                function: (content) => {
-                    const sketch1 = document.querySelector("#sketch1");
-                    if (sketch1) {
-                        sketch1.innerHTML = content;
-                    }
-                },
-                args: [content],
-            });
-        });
-    });
-
-    socket.on("host-page-update", async (page) => {
-        const tabs = await chrome.tabs.query({});
-
-        tabs.forEach((tab) => {
-            if (cleanUrl(tab.url) === socket.bookUrl) {
-                socket.tabId = tab.id;
-
-                chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    func: (pageNr) => {
-                        const pageInput = document.querySelector("#txtPage");
-                        pageInput.value = pageNr; // sub for cover and toc
-                        pageInput.dispatchEvent(new Event("change"));
-                    },
-                    args: [page],
-                });
-            }
-        });
-    });
-
-    socket.on("user-joined", () => {
-        console.log("User joined");
-
-        connectedUsersCount++;
+        console.log("Connected to socket server");
 
         chrome.runtime.sendMessage({
-            action: "user-joined",
-            forPopup: true,
-            count: connectedUsersCount,
+            action: "popup:reset",
         });
     });
 
-    socket.on("user-left", () => {
-        console.log("User left");
+    socket.on("connect_error", (err) => {
+        console.log("Failed to connect to socket server");
 
-        connectedUsersCount--;
+        currentRoom = null;
+
+        destroyBadge();
 
         chrome.runtime.sendMessage({
-            action: "user-left",
-            forPopup: true,
-            count: connectedUsersCount,
+            action: "popup:reset",
+        });
+
+        chrome.runtime.sendMessage({
+            action: "chat:destroy",
+        });
+    });
+
+    socket.on("user-joined", (user) => {
+        currentRoom.users.push(user);
+
+        chrome.runtime.sendMessage({
+            action: "rerender-user-count",
+            room: currentRoom,
+        });
+
+        chrome.runtime.sendMessage({
+            action: "chat:user-joined",
+            username: user.username,
+        });
+    });
+
+    socket.on("user-left", (user) => {
+        currentRoom.users = currentRoom.users.filter((u) => u.id !== user.id);
+
+        chrome.runtime.sendMessage({
+            action: "rerender-user-count",
+            room: currentRoom,
+        });
+
+        chrome.runtime.sendMessage({
+            action: "chat:user-left",
+            username: user.username,
         });
     });
 
     socket.on("party-closed", () => {
-        console.log("Party closed");
-
-        socket.roomId = null;
-        socket.host = null;
-
-        resetStorage();
+        currentRoom = null;
 
         chrome.runtime.sendMessage({
-            action: "party-closed",
-            forPopup: true,
+            action: "rerender-party-closed",
+        });
+
+        chrome.runtime.sendMessage({
+            action: "chat:destroy",
+        });
+
+        destroyBadge();
+    });
+
+    socket.on("chat-message", (data) => {
+        chrome.runtime.sendMessage({
+            action: "chat:add-message",
+            username: data.user.username,
+            message: data.message,
         });
     });
 
-    console.log("Connected");
+    myData = {
+        id: socket.id,
+        username: Math.random().toString(36).substring(7),
+    };
 }
 
-let hostTriggers = [];
-
-const addHostTriggers = async () => {
-    if (!socket.connected) return;
-
-    hostTriggers.push(
-        setInterval(async () => {
-            const tabs = await chrome.tabs.query({});
-
-            tabs.forEach((tab) => {
-                if (tab.id !== socket.tabId) return;
-                console.log(tab.url, socket.bookUrlDirty);
-
-                if (tab.url === socket.bookUrlDirty) return;
-
-                socket.emit("host-url-change", tab.url);
-                socket.bookUrl = cleanUrl(tab.url);
-                socket.bookUrlDirty = tab.url;
-            });
-        }, 500)
-    );
-
-    hostTriggers.push(
-        setInterval(async () => {
-            const tabs = await chrome.tabs.query({});
-
-            tabs.forEach((tab) => {
-                if (tab.id !== socket.tabId) return;
-
-                chrome.scripting.executeScript(
-                    {
-                        target: { tabId: tab.id },
-                        function: () => {
-                            const sketch1 = document.querySelector("#sketch1");
-                            if (sketch1) {
-                                let htmlContent = "";
-                                for (
-                                    let i = 0;
-                                    i < sketch1.children.length;
-                                    i++
-                                ) {
-                                    htmlContent +=
-                                        sketch1.children[i].outerHTML;
-                                }
-                                return htmlContent;
-                            }
-                            return null;
-                        },
-                    },
-                    (results) => {
-                        if (results && results[0]) {
-                            const content = results[0].result;
-
-                            socket.emit("host-page-content-change", content);
-                        }
-                    }
-                );
-            });
-        }, 500)
-    );
-};
-
-const clearHostTriggers = () => {
-    hostTriggers.forEach((trigger) => {
-        clearInterval(trigger);
-    });
-
-    hostTriggers = [];
-};
-
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
-    if (request.action === "socket-status") {
-        sendResponse({
-            connected: socket.connected,
-        });
-    }
-
-    if (request.action === "create") {
-        socket.emit("create-party", {
-            roomId: request.roomId,
-            url: request.url,
-        });
-
-        socket.roomId = request.roomId;
-        socket.host = true;
-        socket.bookUrl = cleanUrl(request.url);
-        socket.bookUrlDirty = request.url;
-
-        const tabs = await chrome.tabs.query({});
-
-        tabs.forEach((tab) => {
-            if (cleanUrl(tab.url) === socket.bookUrl) {
-                socket.tabId = tab.id;
-
-                return;
-            }
-        });
-
-        resetStorage();
-
-        addHostTriggers();
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "send-chat-message") {
+        socket.emit("br-chat-message", request.message);
 
         return;
     }
 
-    if (request.action === "join") {
-        socket.emit("join-party", request.roomId);
+    if (request.action === "get-server-connection") {
+        sendResponse(socket.connected);
 
-        socket.roomId = request.roomId;
-        socket.host = false;
+        return true;
+    }
 
-        resetStorage();
+    if (request.action === "party-exists") {
+        console.log(request.id);
 
-        return;
+        getResp("party-exists", {
+            partyId: request.id,
+        }).then((resp) => {
+            sendResponse(resp);
+        });
+
+        return true;
     }
 
     if (request.action === "get-room") {
-        if (!socket.roomId) return null;
+        sendResponse(currentRoom ?? null);
 
-        sendResponse({
-            id: socket.roomId,
-            isHost: socket.host,
-            connectedUsersCount,
+        return true;
+    }
+
+    if (request.action === "get-user") {
+        sendResponse(myData ?? null);
+
+        return true;
+    }
+
+    if (request.action === "create-party") {
+        socket.emit("create-party", {
+            partyId: request.roomId,
+            username: myData.username,
         });
+
+        currentRoom = {
+            id: request.roomId,
+            isHost: true,
+            users: [
+                {
+                    id: socket.id,
+                    username: myData.username,
+                },
+            ],
+        };
+
+        createBadge();
 
         return;
     }
 
-    if (request.action === "leave") {
-        if (socket.host) {
-            clearHostTriggers();
-            socket.emit("close-party");
-        } else {
-            socket.emit("leave-party");
-        }
-
-        socket.roomId = null;
-        socket.host = null;
-        socket.bookUrl = null;
-        socket.bookUrlDirty = null;
-        socket.tabId = null;
-
-        resetStorage();
+    if (request.action === "set-username") {
+        myData.username = request.username;
 
         return;
+    }
+
+    if (request.action === "join-party") {
+        getResp("join-party", {
+            partyId: request.partyId,
+            username: myData.username,
+        }).then((resp) => {
+            currentRoom = {
+                id: request.partyId,
+                isHost: false,
+                users: resp.users,
+            };
+
+            sendResponse(currentRoom);
+        });
+
+        createBadge();
+
+        return true;
+    }
+
+    if (request.action === "leave-party") {
+        socket.emit("leave-party");
+
+        currentRoom = null;
+
+        chrome.runtime.sendMessage({
+            action: "chat:destroy",
+        });
+
+        destroyBadge();
+
+        return;
+    }
+
+    if (request.action === "destroy-chat") {
+        chrome.runtime.sendMessage({
+            action: "chat:destroy",
+        });
     }
 });

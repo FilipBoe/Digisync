@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Chat</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: sans-serif;
+                background-color: rgb(29, 27, 27);
+            }
+
+            .silent-link {
+                margin-left: 1rem;
+                text-decoration: none;
+                color: whitesmoke;
+                font-size: 2.5rem;
+            }
+
+            .title {
+                color: whitesmoke;
+                margin-top: auto;
+                margin-bottom: auto;
+                margin-left: 2rem;
+                font-size: 2rem;
+                width: 100%;
+            }
+
+            .chat-header {
+                background-color: black;
+                display: flex;
+                justify-content: space-between;
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+            }
+
+            .chat-body {
+                background-color: rgb(29, 27, 27);
+                display: flex;
+                flex-direction: column;
+                height: 100%;
+                overflow-y: scroll;
+                overflow-x: hidden;
+            }
+
+            #closeBtn {
+                width: 50px;
+                margin-top: auto;
+                margin-bottom: auto;
+            }
+
+            #settingsBtn {
+                width: 50px;
+                margin-top: auto;
+                margin-bottom: auto;
+                margin-right: 1rem;
+            }
+
+            #settingsBtn svg {
+                height: 2rem;
+                width: 2rem;
+                margin-top: auto;
+                margin-bottom: auto;
+                padding-top: 0.2rem;
+            }
+
+            .chat-footer {
+                background-color: black;
+                display: flex;
+                justify-content: space-between;
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+            }
+
+            .chat-container {
+                display: flex;
+                flex-direction: column;
+                height: 100vh;
+            }
+
+            .message {
+                background-color: rgb(29, 27, 27);
+                color: whitesmoke;
+                padding: 0.25rem;
+                margin: 0.25rem;
+                border-radius: 0.5rem;
+                width: 100%;
+            }
+
+            .server-message {
+                background-color: rgb(29, 27, 27);
+                color: whitesmoke;
+                font-style: italic;
+                padding: 0.25rem;
+                margin: 0.25rem;
+                border-radius: 0.5rem;
+                width: 100%;
+            }
+
+            .message .name {
+                font-weight: bold;
+            }
+
+            .message .msg {
+                margin-left: 0.5rem;
+            }
+            .msg-input {
+                font-size: 16px;
+                float: left;
+                width: 100%;
+                height: 40px;
+                padding: 0 0.5rem;
+                margin-left: 0.5rem;
+                color: dark;
+                border: 0;
+                outline: none;
+                background-color: #eceff1;
+                border-radius: 0.25rem;
+            }
+
+            .send-button {
+                border: 0;
+                cursor: pointer;
+                font-size: 16px;
+                font-weight: bold;
+                height: 40px;
+                padding: 0 20px;
+                margin-left: 5px;
+                outline: none;
+            }
+
+            /* design scrollbar of chat body */
+            ::-webkit-scrollbar {
+                width: 0.5rem;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: rgb(29, 27, 27);
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: #888;
+            }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: #555;
+            }
+
+            .settings-modal {
+                /* display: none; */
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5);
+                z-index: 999;
+            }
+
+            .settings-modal-content {
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 100%;
+                height: 50%;
+                transform: translate(-50%, -50%);
+                padding: 2rem;
+                border-radius: 0.5rem;
+                background-color: rgb(29, 27, 27);
+                color: whitesmoke;
+            }
+
+            .settings-modal-close {
+                font-size: 3rem;
+                color: gray;
+                cursor: pointer;
+                font-weight: lighter;
+            }
+
+            .modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .form-group {
+                margin-top: 1rem;
+                font-size: 1rem;
+            }
+
+            .form-group label {
+                display: block;
+                margin-bottom: 0.5rem;
+                font-size: 1rem;
+            }
+
+            .form-group input {
+                width: 100%;
+                padding: 0.5rem;
+                border-radius: 0.25rem;
+                border: 0;
+                outline: none;
+                background-color: #eceff1;
+                font-size: 1rem;
+            }
+
+            .primary-button {
+                background-color: #2196f3;
+                color: whitesmoke;
+                padding: 0.5rem;
+                border-radius: 0.25rem;
+                border: 0;
+                outline: none;
+                cursor: pointer;
+                font-size: 1rem;
+            }
+
+            .primary-button:hover {
+                background-color: #1976d2;
+            }
+
+            .primary-button:active {
+                background-color: #0d47a1;
+            }
+
+            .modal-footer {
+                display: flex;
+                justify-content: flex-end;
+                margin-top: 1rem;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="settings-modal" id="settings-modal">
+            <div class="settings-modal-content">
+                <div class="modal-header">
+                    <h2>Settings</h2>
+                    <a
+                        href="#"
+                        class="settings-modal-close silent-link"
+                        id="settings-modal-close"
+                    >
+                        &times;
+                    </a>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="username">Username</label>
+                        <input
+                            type="text"
+                            id="settings-username"
+                            placeholder="Username"
+                        />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <p id="settings-modal-error"></p>
+                    <button class="primary-button" id="settings-modal-save">
+                        Save
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="chat-container">
+            <div class="chat-header">
+                <a href="#" id="closeBtn" class="silent-link">&times;</a>
+                <h2 class="title" id="room-name"></h2>
+                <a href="#" id="settingsBtn" class="silent-link">
+                    <svg
+                        fill="#ffffff"
+                        height="200px"
+                        width="200px"
+                        version="1.1"
+                        id="Capa_1"
+                        xmlns="http://www.w3.org/2000/svg"
+                        xmlns:xlink="http://www.w3.org/1999/xlink"
+                        viewBox="0 0 489.802 489.802"
+                        xml:space="preserve"
+                        stroke="#ffffff"
+                    >
+                        <g id="SVGRepo_bgCarrier" stroke-width="0"></g>
+                        <g
+                            id="SVGRepo_tracerCarrier"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        ></g>
+                        <g id="SVGRepo_iconCarrier">
+                            <g>
+                                <path
+                                    d="M20.701,281.901l32.1,0.2c4.8,24.7,14.3,48.7,28.7,70.5l-22.8,22.6c-8.2,8.1-8.2,21.2-0.2,29.4l24.6,24.9 c8.1,8.2,21.2,8.2,29.4,0.2l22.8-22.6c21.6,14.6,45.5,24.5,70.2,29.5l-0.2,32.1c-0.1,11.5,9.2,20.8,20.7,20.9l35,0.2 c11.5,0.1,20.8-9.2,20.9-20.7l0.2-32.1c24.7-4.8,48.7-14.3,70.5-28.7l22.6,22.8c8.1,8.2,21.2,8.2,29.4,0.2l24.9-24.6 c8.2-8.1,8.2-21.2,0.2-29.4l-22.6-22.8c14.6-21.6,24.5-45.5,29.5-70.2l32.1,0.2c11.5,0.1,20.8-9.2,20.9-20.7l0.2-35 c0.1-11.5-9.2-20.8-20.7-20.9l-32.1-0.2c-4.8-24.7-14.3-48.7-28.7-70.5l22.8-22.6c8.2-8.1,8.2-21.2,0.2-29.4l-24.6-24.9 c-8.1-8.2-21.2-8.2-29.4-0.2l-22.8,22.6c-21.6-14.6-45.5-24.5-70.2-29.5l0.2-32.1c0.1-11.5-9.2-20.8-20.7-20.9l-35-0.2 c-11.5-0.1-20.8,9.2-20.9,20.7l-0.3,32.1c-24.8,4.8-48.8,14.3-70.5,28.7l-22.6-22.8c-8.1-8.2-21.2-8.2-29.4-0.2l-24.8,24.6 c-8.2,8.1-8.2,21.2-0.2,29.4l22.6,22.8c-14.6,21.6-24.5,45.5-29.5,70.2l-32.1-0.2c-11.5-0.1-20.8,9.2-20.9,20.7l-0.2,35 C-0.099,272.401,9.201,281.801,20.701,281.901z M179.301,178.601c36.6-36.2,95.5-35.9,131.7,0.7s35.9,95.5-0.7,131.7 s-95.5,35.9-131.7-0.7S142.701,214.801,179.301,178.601z"
+                                ></path>
+                            </g>
+                        </g>
+                    </svg>
+                </a>
+            </div>
+            <div id="chat-messages" class="chat-body">
+                <p class="server-message">You joined the room</p>
+            </div>
+            <div class="chat-footer">
+                <!-- <button id="toggleEmoji">↓</button>
+                <div class="emoji-bar">
+                    <span>😀</span>
+                    <span>😺</span>
+                </div> -->
+                <input
+                    type="text"
+                    placeholder="Type message..."
+                    id="messageInput"
+                    class="msg-input"
+                />
+                <svg
+                    class="send-button"
+                    id="sendBtn"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    stroke="#ffffff"
+                >
+                    <g id="SVGRepo_bgCarrier" stroke-width="0"></g>
+                    <g
+                        id="SVGRepo_tracerCarrier"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    ></g>
+                    <g id="SVGRepo_iconCarrier">
+                        <path
+                            d="M11.5003 12H5.41872M5.24634 12.7972L4.24158 15.7986C3.69128 17.4424 3.41613 18.2643 3.61359 18.7704C3.78506 19.21 4.15335 19.5432 4.6078 19.6701C5.13111 19.8161 5.92151 19.4604 7.50231 18.7491L17.6367 14.1886C19.1797 13.4942 19.9512 13.1471 20.1896 12.6648C20.3968 12.2458 20.3968 11.7541 20.1896 11.3351C19.9512 10.8529 19.1797 10.5057 17.6367 9.81135L7.48483 5.24303C5.90879 4.53382 5.12078 4.17921 4.59799 4.32468C4.14397 4.45101 3.77572 4.78336 3.60365 5.22209C3.40551 5.72728 3.67772 6.54741 4.22215 8.18767L5.24829 11.2793C5.34179 11.561 5.38855 11.7019 5.407 11.8459C5.42338 11.9738 5.42321 12.1032 5.40651 12.231C5.38768 12.375 5.34057 12.5157 5.24634 12.7972Z"
+                            stroke="#ffffff"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        ></path>
+                    </g>
+                </svg>
+            </div>
+        </div>
+        <script src="chat.js"></script>
+    </body>
+</html>

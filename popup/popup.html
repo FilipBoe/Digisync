@@ -3,160 +3,47 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Document</title>
+        <title>Digisync</title>
         <style>
-            *,
-            *::before,
-            *::after {
-                box-sizing: border-box;
-            }
-
-            body,
-            html {
-                width: 100%;
-                height: 100%;
-                margin: 0;
-                padding: 0;
-                font-family: Arial, sans-serif;
-                background-color: #f4f4f4;
-            }
-
-            main {
-                background-color: white;
-                border-radius: 8px;
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                padding: 20px;
-                width: 350px; /* Fixed width to match the popup width */
-                margin: 0 auto;
-            }
-
-            #error {
-                color: #d32f2f;
-                margin-bottom: 15px;
-                text-align: center;
-            }
-
-            label {
-                display: block;
-                margin-bottom: 5px;
-                font-weight: bold;
-            }
-
-            input[type="text"] {
-                width: 100%; /* Adjusted for box-sizing */
-                padding: 10px;
-                margin-bottom: 10px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-            }
-
-            button {
-                background-color: #4285f4;
-                color: white;
-                border: none;
-                padding: 10px 15px;
-                margin-right: 10px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 16px;
-                display: block; /* Make buttons block to fill width */
-                width: 100%; /* Adjusted for box-sizing */
-                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Optional: Adds a subtle shadow to buttons */
-                margin-bottom: 10px;
-            }
-
-            button:hover {
-                background-color: #357ae8;
-            }
-
-            button:disabled {
-                background-color: #ccc;
-            }
-
-            [data-show-on-connection],
-            [data-show-on-host],
-            [data-show-on-client] {
-                background-color: #e0e0e0;
-                padding: 10px;
-                border-radius: 4px;
-                margin-bottom: 10px;
-                text-align: center;
-            }
-
-            /* Badge styles */
-            .badge {
-                display: inline-block;
-                padding: 0.25em 0.4em;
-                font-size: 75%;
-                font-weight: 700;
-                line-height: 1;
-                text-align: center;
-                white-space: nowrap;
-                vertical-align: baseline;
-                border-radius: 0.375em;
-                background-color: #f0ad4e;
-                color: white;
-            }
-
-            /* Improved font styling */
-            body,
-            html {
-                font-size: 16px; /* Default font size for better readability */
-                font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; /* A more modern font family */
-            }
-
-            /* Height Adjustment */
-            main {
-                min-height: 200px; /* Set a minimum height for the main container */
-                display: flex;
-                flex-direction: column;
-                justify-content: space-between; /* This will distribute space evenly */
-            }
-
-            /* Form input and button alignment */
-            form {
-                display: flex;
-                flex-direction: column;
-            }
-
-            form > button {
-                margin-right: 0; /* Align buttons properly under the input */
-            }
-
-            /* Adjustments for a better layout */
-            #roomForm {
-                margin-bottom: 15px; /* Add some space between the form and the next section */
+            .hidden {
+                display: none;
             }
         </style>
     </head>
     <body>
-        <main>
-            <div id="error"></div>
+        <main style="width: 500px">
+            <section id="home" class="hidden">
+                <p>Username: <span data-username></span></p>
 
-            <div data-show-on-connection style="display: none">
-                Connected Users:
-                <span data-users-connected class="badge">0</span>
-            </div>
+                <div data-error class="hidden"></div>
 
-            <form id="roomForm" data-hide-on-connection>
-                <label for="roomId">Room ID:</label>
-                <input type="text" id="roomId" name="roomId" />
-                <button type="submit" id="joinRoomBtn" disabled>
-                    Join Room
+                <input type="text" placeholder="Partyname" id="party-id" />
+
+                <button type="button" id="join-btn">Join</button>
+                <button type="button" id="create-btn">Create</button>
+            </section>
+
+            <section id="party" class="hidden">
+                <p>Username: <span data-username></span></p>
+
+                <span data-user-count></span>
+                <span data-room></span>
+
+                <button type="button" data-quit>
+                    <span data-host class="hidden">Close party</span>
+                    <span data-client class="hidden">Leave</span>
                 </button>
-                <button type="button" id="createRoomBtn">Create Room</button>
-            </form>
 
-            <div data-show-on-host style="display: none">
-                <p>You are the HOST of <span data-room-id></span></p>
-                <button type="button" data-copy-room-id>Copy Room ID</button>
-                <button type="button" id="closeRoomBtn">Close room</button>
-            </div>
+                <button type="button.chat-container" id="inject-chat">
+                    open Chat
+                </button>
+            </section>
 
-            <div data-show-on-client style="display: none">
-                <p>Member of <span data-room-id></span></p>
-                <button type="button" data-leave-room>Leave</button>
-            </div>
+            <section id="fatal-error" class="hidden">
+                <p id="fatal-error-msg">
+                    Something went wrong. Please try again later.
+                </p>
+            </section>
         </main>
 
         <script src="../socket.io.min.js"></script>

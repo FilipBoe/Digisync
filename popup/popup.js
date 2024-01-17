@@ -1,287 +1,341 @@
-let usersCountBadge = null;
-let showOnHost;
-let showOnClient;
-let hideOnConnection;
-let showOnConnection;
-
-// get the active tab and check url
-
-const setConnectedBadge = () => {
-    chrome.action.setBadgeText({ text: "ON" });
-    chrome.action.setBadgeBackgroundColor({ color: "#00ff00" });
+// get service worker response
+const getSWResp = (action, data) => {
+    return chrome.runtime.sendMessage({
+        action,
+        ...data,
+    });
 };
 
-const clearConnectedBadge = () => {
-    chrome.action.setBadgeText({ text: "" });
+const hideMany = (els) => {
+    els.forEach((el) => {
+        el.classList.add("hidden");
+    });
 };
 
-const getActiveTab = () => {
-    return new Promise((resolve, reject) => {
+const showMany = (els, textContent = null) => {
+    els.forEach((el) => {
+        if (textContent) el.textContent = textContent;
+
+        el.classList.remove("hidden");
+    });
+};
+
+const bindMany = (els, event, callback) => {
+    els.forEach((el) => {
+        el.addEventListener(event, callback);
+    });
+};
+
+const clearMany = (els, event, callback) => {
+    els.forEach((el) => {
+        el.removeEventListener(event, callback);
+    });
+};
+
+const getActiveTabId = () => {
+    return new Promise((resolve) => {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (tabs.length === 0) {
-                reject("No active tab");
-            }
+            const activeTab = tabs[0];
 
-            resolve(tabs[0]);
+            resolve(activeTab.id);
         });
     });
 };
 
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
-    if (!request.forPopup) return;
+let myData;
 
-    if (request.action === "user-joined") {
-        if (!usersCountBadge) return;
+// html elements
+let homeSection;
+let partySection;
+let fatalErrorSection;
 
-        usersCountBadge.forEach(async (el) => {
-            el.innerText = request.count;
-        });
+let joinButton;
+let createBtn;
+let partyIdInput;
+let usersCountBadges;
+
+let dataHosts;
+let dataClients;
+let dataRooms;
+let dataQuits;
+let dataErrors;
+let dataUsernames;
+let fatalErrorMsg;
+let injectChatButton;
+
+const hideSections = () => {
+    homeSection.classList.add("hidden");
+    partySection.classList.add("hidden");
+    fatalErrorSection.classList.add("hidden");
+};
+
+const joinButtonHomeSectionClick = async (roomId) => {
+    if (partyIdInput.value.length < 3) {
+        renderHomeSection("Room ID must be at least 3 characters long", roomId);
 
         return;
     }
 
-    if (request.action === "user-left") {
-        if (!usersCountBadge) return;
+    const partyDoesExist = await chrome.runtime.sendMessage({
+        action: "party-exists",
+        id: partyIdInput.value,
+    });
 
-        usersCountBadge.forEach(async (el) => {
-            el.innerText = request.count;
-        });
+    if (!partyDoesExist) {
+        renderHomeSection("Room does not exist", roomId);
 
         return;
     }
 
-    if (request.action === "party-closed") {
-        showOnHost.forEach((el) => {
-            el.style.display = "none";
+    const tabId = await getActiveTabId();
+
+    const room = await chrome.runtime.sendMessage({
+        action: "join-party",
+        partyId: partyIdInput.value,
+        tabId,
+    });
+
+    injectPageWithChat();
+
+    renderPartySection(partyIdInput.value, false, room.users.length);
+};
+
+const createButtonHomeSectionClick = async () => {
+    if (partyIdInput.value.length < 3) {
+        renderHomeSection("Room ID must be at least 3 characters long");
+
+        return;
+    }
+
+    const partyDoesExist = await chrome.runtime.sendMessage({
+        action: "party-exists",
+        id: partyIdInput.value,
+    });
+
+    if (partyDoesExist) {
+        renderHomeSection("Room with name already exists");
+
+        return;
+    }
+
+    const tabId = await getActiveTabId();
+
+    await chrome.runtime.sendMessage({
+        action: "create-party",
+        roomId: partyIdInput.value,
+        tabId,
+    });
+
+    injectPageWithChat();
+
+    console.log("created room " + partyIdInput.value);
+
+    renderPartySection(partyIdInput.value, true, 1);
+};
+
+const dataQuitsClickPartySection = async () => {
+    await chrome.runtime.sendMessage({
+        action: "leave-party",
+    });
+
+    renderHomeSection();
+};
+
+const injectPageWithChat = () => {
+    const extensionsId = chrome.runtime.id;
+
+    // append the iframe to currently active tab
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const activeTab = tabs[0];
+
+        chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            func: (id) => {
+                const iframe = document.createElement("iframe");
+                const chatUrl = `chrome-extension://${id}/pages/chat.html`;
+
+                iframe.src = chatUrl;
+
+                iframe.style.width = "400px";
+                iframe.style.height = "100%";
+                iframe.style.position = "fixed";
+                iframe.style.bottom = "0";
+                iframe.style.right = "0";
+                iframe.style.border = "none";
+                iframe.id = "chat-iframe";
+
+                const checkExist = document.getElementById("chat-iframe");
+
+                if (!checkExist) {
+                    document.body.appendChild(iframe);
+
+                    window.addEventListener("message", (event) => {
+                        if (
+                            event.data.action &&
+                            event.data.action === "destroy-iframe"
+                        ) {
+                            const chatIframe =
+                                document.getElementById("chat-iframe");
+
+                            if (chatIframe) {
+                                chatIframe.remove();
+                            }
+                        }
+                    });
+                }
+            },
+            args: [extensionsId],
         });
 
-        showOnClient.forEach((el) => {
-            el.style.display = "none";
+        chrome.runtime.sendMessage({
+            action: "chat:set-tabid",
+            tabId: activeTab.id,
         });
+    });
+};
 
-        hideOnConnection.forEach((el) => {
-            el.style.display = "block";
-        });
+const renderHomeSection = (errorMsg, roomId = "") => {
+    hideSections();
 
-        showOnConnection.forEach((el) => {
-            el.style.display = "none";
+    dataUsernames.forEach((el) => {
+        el.innerText = myData.username;
+    });
+
+    joinButton.addEventListener(
+        "click",
+        () => joinButtonHomeSectionClick(roomId),
+        {
+            once: true,
+        }
+    );
+
+    createBtn.addEventListener("click", createButtonHomeSectionClick, {
+        once: true,
+    });
+
+    if (errorMsg) {
+        showMany(dataErrors, errorMsg);
+    } else {
+        hideMany(dataErrors);
+    }
+
+    partyIdInput.value = roomId;
+
+    homeSection.classList.remove("hidden");
+};
+
+const renderPartySection = async (roomId, isHost, connectedUsers = 0) => {
+    hideSections();
+
+    dataUsernames.forEach((el) => {
+        el.innerText = myData.username;
+    });
+
+    usersCountBadges.forEach((el) => {
+        el.innerText = connectedUsers;
+    });
+
+    dataRooms.forEach((el) => {
+        el.innerText = roomId;
+    });
+
+    if (isHost) {
+        showMany(dataHosts);
+        hideMany(dataClients);
+    } else {
+        hideMany(dataHosts);
+        showMany(dataClients);
+    }
+
+    clearMany(dataQuits, "click", dataQuitsClickPartySection);
+    bindMany(dataQuits, "click", dataQuitsClickPartySection);
+
+    injectChatButton.addEventListener(
+        "click",
+        () => {
+            injectPageWithChat();
+        },
+        {
+            once: true,
+        }
+    );
+
+    partySection.classList.remove("hidden");
+};
+
+const renderFatalErrorSection = (errorMsg) => {
+    hideSections();
+
+    fatalErrorMsg.innerText = errorMsg;
+
+    fatalErrorSection.classList.remove("hidden");
+};
+
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === "rerender-user-count") {
+        usersCountBadges.forEach((el) => {
+            el.innerText = request.room.users.length;
         });
+    }
+
+    if (request.action === "rerender-party-closed") {
+        renderHomeSection("Party closed");
+    }
+
+    if (request.action === "popup:reset") {
+        baseRender();
     }
 });
 
-let roomId = null;
-
-const setRoomIds = () => {
-    const roomIds = document.querySelectorAll("[data-room-id]");
-
-    roomIds.forEach((el) => {
-        el.innerText = roomId;
-    });
-};
-
-const forAll = (elements, callback) => {
-    elements.forEach((el) => {
-        callback(el);
-    });
-};
-
-document.addEventListener("DOMContentLoaded", async () => {
-    const createRoomBtn = document.getElementById("createRoomBtn");
-    const joinRoomBtn = document.getElementById("joinRoomBtn");
-    const createRoomForm = document.getElementById("roomForm");
-    const leaveRoomButtons = document.querySelectorAll("[data-leave-room]");
-    const roomInput = document.getElementById("roomId");
-    const copyRoomIdBtn = document.querySelectorAll("[data-copy-room-id]");
-    const closeRoomBtn = document.getElementById("closeRoomBtn");
-    const errorAlert = document.getElementById("error");
-
-    usersCountBadge = document.querySelectorAll("[data-users-connected]");
-
-    showOnHost = document.querySelectorAll("[data-show-on-host]");
-    showOnClient = document.querySelectorAll("[data-show-on-client]");
-    hideOnConnection = document.querySelectorAll("[data-hide-on-connection]");
-    showOnConnection = document.querySelectorAll("[data-show-on-connection]");
-
-    const socketStatus = await chrome.runtime.sendMessage({
-        action: "socket-status",
+const baseRender = async () => {
+    const serverConnection = await chrome.runtime.sendMessage({
+        action: "get-server-connection",
     });
 
-    if (!socketStatus.connected) {
-        errorAlert.textContent =
-            "Currently not connected to the server. Please try again later.";
-
-        createRoomForm.style.display = "none";
+    if (!serverConnection) {
+        renderFatalErrorSection("Server connection failed");
 
         return;
     }
 
-    const joinedRoom = await chrome.runtime.sendMessage({
+    myData = await chrome.runtime.sendMessage({
+        action: "get-user",
+    });
+
+    const inRoom = await chrome.runtime.sendMessage({
         action: "get-room",
     });
 
-    if (joinedRoom) {
-        setConnectedBadge();
-        roomId = joinedRoom.id;
+    if (inRoom) {
+        // user should do it manual
+        // injectPageWithChat();
 
-        setRoomIds();
-
-        if (joinedRoom.isHost) {
-            showOnHost.forEach((el) => {
-                el.style.display = "block";
-            });
-        } else {
-            showOnClient.forEach((el) => {
-                el.style.display = "block";
-            });
-        }
-
-        hideOnConnection.forEach((el) => {
-            el.style.display = "none";
-        });
-
-        showOnConnection.forEach((el) => {
-            el.style.display = "block";
-        });
-
-        usersCountBadge.forEach(async (el) => {
-            el.innerText = joinedRoom.connectedUsersCount;
-        });
-    } else {
-        clearConnectedBadge();
+        return renderPartySection(
+            inRoom.id,
+            inRoom.isHost,
+            inRoom.users.length
+        );
     }
 
-    const activeTab = await getActiveTab();
-    let cantCreate = false;
+    renderHomeSection();
+};
 
-    if (
-        !activeTab.url.startsWith("https://a.digi4school.at") &&
-        !activeTab.url.startsWith("https://digi4school.at/demo-ebooks")
-    ) {
-        cantCreate = true;
-    }
+document.addEventListener("DOMContentLoaded", async () => {
+    homeSection = document.querySelector("#home");
+    partySection = document.querySelector("#party");
+    joinButton = document.querySelector("#join-btn");
+    createBtn = document.querySelector("#create-btn");
+    partyIdInput = document.querySelector("#party-id");
+    usersCountBadges = document.querySelectorAll("[data-user-count]");
+    dataHosts = document.querySelectorAll("[data-host]");
+    dataClients = document.querySelectorAll("[data-client]");
+    dataQuits = document.querySelectorAll("[data-quit]");
+    dataErrors = document.querySelectorAll("[data-error]");
+    dataRooms = document.querySelectorAll("[data-room]");
+    dataUsernames = document.querySelectorAll("[data-username]");
+    fatalErrorSection = document.querySelector("#fatal-error");
+    fatalErrorMsg = document.querySelector("#fatal-error-msg");
+    injectChatButton = document.querySelector("#inject-chat");
 
-    if (cantCreate) {
-        createRoomBtn.style.display = "none";
-    }
-
-    roomInput.addEventListener("input", (e) => {
-        if (e.target.value.length > 0) {
-            joinRoomBtn.removeAttribute("disabled");
-            return;
-        }
-
-        joinRoomBtn.setAttribute("disabled", true);
-    });
-
-    createRoomBtn.addEventListener("click", () => {
-        setConnectedBadge();
-        roomId = Math.random().toString(36).substring(2, 9);
-
-        if (roomInput.value.length > 0) {
-            roomId = roomInput.value;
-        }
-
-        chrome.runtime.sendMessage({
-            action: "create",
-            roomId,
-            url: activeTab.url,
-        });
-
-        setRoomIds();
-
-        showOnHost.forEach((el) => {
-            el.style.display = "block";
-        });
-
-        hideOnConnection.forEach((el) => {
-            el.style.display = "none";
-        });
-
-        showOnConnection.forEach((el) => {
-            el.style.display = "block";
-        });
-    });
-
-    createRoomForm.addEventListener("submit", (e) => {
-        setConnectedBadge();
-        e.preventDefault();
-
-        roomId = roomInput.value;
-
-        chrome.runtime.sendMessage({ action: "join", roomId });
-
-        setRoomIds();
-
-        showOnClient.forEach((el) => {
-            el.style.display = "block";
-        });
-
-        hideOnConnection.forEach((el) => {
-            el.style.display = "none";
-        });
-
-        showOnConnection.forEach((el) => {
-            el.style.display = "block";
-        });
-    });
-
-    leaveRoomButtons.forEach((el) => {
-        el.addEventListener("click", () => {
-            clearConnectedBadge();
-            chrome.runtime.sendMessage({ action: "leave" });
-
-            roomId = null;
-
-            showOnHost.forEach((el) => {
-                el.style.display = "none";
-            });
-
-            showOnClient.forEach((el) => {
-                el.style.display = "none";
-            });
-
-            hideOnConnection.forEach((el) => {
-                el.style.display = "block";
-            });
-
-            showOnConnection.forEach((el) => {
-                el.style.display = "none";
-            });
-        });
-    });
-
-    copyRoomIdBtn.forEach((el) => {
-        el.addEventListener("click", () => {
-            navigator.clipboard.writeText(roomId);
-
-            el.innerText = "Copied!";
-
-            setTimeout(() => {
-                el.innerText = "Copy Room ID";
-            }, 1000);
-        });
-    });
-
-    closeRoomBtn.addEventListener("click", () => {
-        clearConnectedBadge();
-        chrome.runtime.sendMessage({ action: "leave" });
-
-        roomId = null;
-
-        showOnHost.forEach((el) => {
-            el.style.display = "none";
-        });
-
-        showOnClient.forEach((el) => {
-            el.style.display = "none";
-        });
-
-        hideOnConnection.forEach((el) => {
-            el.style.display = "block";
-        });
-
-        showOnConnection.forEach((el) => {
-            el.style.display = "none";
-        });
-    });
+    baseRender();
 });

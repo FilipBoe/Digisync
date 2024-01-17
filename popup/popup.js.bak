@@ -1,0 +1,310 @@
+let usersCountBadge = null;
+let showOnHost;
+let showOnClient;
+let hideOnConnection;
+let showOnConnection;
+
+// get the active tab and check url
+
+const setConnectedBadge = () => {
+    chrome.action.setBadgeText({ text: "ON" });
+    chrome.action.setBadgeBackgroundColor({ color: "#00ff00" });
+};
+
+const clearConnectedBadge = () => {
+    chrome.action.setBadgeText({ text: "" });
+};
+
+const getActiveTab = () => {
+    return new Promise((resolve, reject) => {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs.length === 0) {
+                reject("No active tab");
+            }
+
+            resolve(tabs[0]);
+        });
+    });
+};
+
+const getSWResp = (action, data) => {
+    return new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(
+            {
+                action,
+                ...data,
+            },
+            (resp) => {
+                resolve(resp);
+            }
+        );
+    });
+};
+
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+    if (!request.forPopup) return;
+
+    if (request.action === "user-joined") {
+        if (!usersCountBadge) return;
+
+        usersCountBadge.forEach(async (el) => {
+            el.innerText = request.count;
+        });
+
+        return;
+    }
+
+    if (request.action === "user-left") {
+        if (!usersCountBadge) return;
+
+        usersCountBadge.forEach(async (el) => {
+            el.innerText = request.count;
+        });
+
+        return;
+    }
+
+    if (request.action === "party-closed") {
+        showOnHost.forEach((el) => {
+            el.style.display = "none";
+        });
+
+        showOnClient.forEach((el) => {
+            el.style.display = "none";
+        });
+
+        hideOnConnection.forEach((el) => {
+            el.style.display = "block";
+        });
+
+        showOnConnection.forEach((el) => {
+            el.style.display = "none";
+        });
+    }
+});
+
+let roomId = null;
+
+const setRoomIds = () => {
+    const roomIds = document.querySelectorAll("[data-room-id]");
+
+    roomIds.forEach((el) => {
+        el.innerText = roomId;
+    });
+};
+
+const forAll = (elements, callback) => {
+    elements.forEach((el) => {
+        callback(el);
+    });
+};
+
+document.addEventListener("DOMContentLoaded", async () => {
+    const createRoomBtn = document.getElementById("createRoomBtn");
+    const joinRoomBtn = document.getElementById("joinRoomBtn");
+    const createRoomForm = document.getElementById("roomForm");
+    const leaveRoomButtons = document.querySelectorAll("[data-leave-room]");
+    const roomInput = document.getElementById("roomId");
+    const copyRoomIdBtn = document.querySelectorAll("[data-copy-room-id]");
+    const closeRoomBtn = document.getElementById("closeRoomBtn");
+    const errorAlert = document.getElementById("error");
+
+    usersCountBadge = document.querySelectorAll("[data-users-connected]");
+
+    showOnHost = document.querySelectorAll("[data-show-on-host]");
+    showOnClient = document.querySelectorAll("[data-show-on-client]");
+    hideOnConnection = document.querySelectorAll("[data-hide-on-connection]");
+    showOnConnection = document.querySelectorAll("[data-show-on-connection]");
+
+    const socketStatus = await chrome.runtime.sendMessage({
+        action: "socket-status",
+    });
+
+    if (!socketStatus.connected) {
+        errorAlert.textContent =
+            "Currently not connected to the server. Please try again later.";
+
+        createRoomForm.style.display = "none";
+
+        return;
+    }
+
+    const joinedRoom = await chrome.runtime.sendMessage({
+        action: "get-room",
+    });
+
+    if (joinedRoom) {
+        setConnectedBadge();
+        roomId = joinedRoom.id;
+
+        setRoomIds();
+
+        if (joinedRoom.isHost) {
+            showOnHost.forEach((el) => {
+                el.style.display = "block";
+            });
+        } else {
+            showOnClient.forEach((el) => {
+                el.style.display = "block";
+            });
+        }
+
+        hideOnConnection.forEach((el) => {
+            el.style.display = "none";
+        });
+
+        showOnConnection.forEach((el) => {
+            el.style.display = "block";
+        });
+
+        usersCountBadge.forEach(async (el) => {
+            el.innerText = joinedRoom.connectedUsersCount;
+        });
+    } else {
+        clearConnectedBadge();
+    }
+
+    const activeTab = await getActiveTab();
+    let cantCreate = false;
+
+    if (
+        !activeTab.url.startsWith("https://a.digi4school.at") &&
+        !activeTab.url.startsWith("https://digi4school.at/demo-ebooks")
+    ) {
+        cantCreate = true;
+    }
+
+    if (cantCreate) {
+        createRoomBtn.style.display = "none";
+    }
+
+    roomInput.addEventListener("input", (e) => {
+        if (e.target.value.length > 0) {
+            joinRoomBtn.removeAttribute("disabled");
+            return;
+        }
+
+        joinRoomBtn.setAttribute("disabled", true);
+    });
+
+    createRoomBtn.addEventListener("click", () => {
+        setConnectedBadge();
+        roomId = Math.random().toString(36).substring(2, 9);
+
+        if (roomInput.value.length > 0) {
+            roomId = roomInput.value;
+        }
+
+        chrome.runtime.sendMessage({
+            action: "create",
+            roomId,
+            url: activeTab.url,
+        });
+
+        setRoomIds();
+
+        showOnHost.forEach((el) => {
+            el.style.display = "block";
+        });
+
+        hideOnConnection.forEach((el) => {
+            el.style.display = "none";
+        });
+
+        showOnConnection.forEach((el) => {
+            el.style.display = "block";
+        });
+    });
+
+    createRoomForm.addEventListener("submit", async (e) => {
+        setConnectedBadge();
+        e.preventDefault();
+
+        roomId = roomInput.value;
+
+        const roomExists = await getSWResp("party-exists", {
+            id: roomId,
+        });
+
+        if (!roomExists) {
+            errorAlert.textContent = "Room does not exist";
+            return;
+        }
+
+        chrome.runtime.sendMessage({ action: "join", roomId });
+
+        setRoomIds();
+
+        showOnClient.forEach((el) => {
+            el.style.display = "block";
+        });
+
+        hideOnConnection.forEach((el) => {
+            el.style.display = "none";
+        });
+
+        showOnConnection.forEach((el) => {
+            el.style.display = "block";
+        });
+    });
+
+    leaveRoomButtons.forEach((el) => {
+        el.addEventListener("click", () => {
+            clearConnectedBadge();
+            chrome.runtime.sendMessage({ action: "leave" });
+
+            roomId = null;
+
+            showOnHost.forEach((el) => {
+                el.style.display = "none";
+            });
+
+            showOnClient.forEach((el) => {
+                el.style.display = "none";
+            });
+
+            hideOnConnection.forEach((el) => {
+                el.style.display = "block";
+            });
+
+            showOnConnection.forEach((el) => {
+                el.style.display = "none";
+            });
+        });
+    });
+
+    copyRoomIdBtn.forEach((el) => {
+        el.addEventListener("click", () => {
+            navigator.clipboard.writeText(roomId);
+
+            el.innerText = "Copied!";
+
+            setTimeout(() => {
+                el.innerText = "Copy Room ID";
+            }, 1000);
+        });
+    });
+
+    closeRoomBtn.addEventListener("click", () => {
+        clearConnectedBadge();
+        chrome.runtime.sendMessage({ action: "leave" });
+
+        roomId = null;
+
+        showOnHost.forEach((el) => {
+            el.style.display = "none";
+        });
+
+        showOnClient.forEach((el) => {
+            el.style.display = "none";
+        });
+
+        hideOnConnection.forEach((el) => {
+            el.style.display = "block";
+        });
+
+        showOnConnection.forEach((el) => {
+            el.style.display = "none";
+        });
+    });
+});
