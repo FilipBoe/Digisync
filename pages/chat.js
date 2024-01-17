@@ -1,13 +1,19 @@
 let chatBody;
 let chromeTabId;
+let user;
+let room;
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
     if (request.action === "chat:user-joined") {
         addServerMessage(`~ ${request.username} joined the room`);
+
+        await refreshRoom();
     }
 
     if (request.action === "chat:user-left") {
         addServerMessage(`~ ${request.username} left the room`);
+
+        await refreshRoom();
     }
 
     if (request.action === "chat:add-message") {
@@ -17,7 +23,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "chat:destroy") {
         destroyChat();
     }
+
+    if (request.action === "chat:user-updated") {
+        if (request.oldUser.username === request.newUser.username) {
+            return;
+        }
+
+        addServerMessage(
+            `~ ${request.oldUser.username} changed their username to ${request.newUser.username}`
+        );
+
+        await refreshRoom();
+    }
+
+    if (request.action === "chat:party-updated") {
+        await refreshRoom();
+    }
 });
+
+const refreshRoom = async () => {
+    room = await getCurrentRoom();
+
+    if (room) {
+        roomName.textContent = room.id;
+    }
+};
 
 const addElToChatBody = (el) => {
     chatBody.appendChild(el);
@@ -87,13 +117,25 @@ let settingsModal;
 let settingsSaveBtn;
 let settingsUsername;
 let settingsModalError;
+let settingsRoomName;
+let roomName;
+let dataHostOnlys;
 
-const loadSettings = async () => {
-    const user = await chrome.runtime.sendMessage({
-        action: "get-user",
-    });
-
+const loadSettings = () => {
+    settingsModalError.style.display = "none";
     settingsUsername.value = user.username;
+
+    if (room.isHost) {
+        settingsRoomName.value = room.id;
+
+        dataHostOnlys.forEach((el) => {
+            el.style.display = "block";
+        });
+    } else {
+        dataHostOnlys.forEach((el) => {
+            el.style.display = "none";
+        });
+    }
 };
 
 const displaySettingsError = (message) => {
@@ -103,11 +145,18 @@ const displaySettingsError = (message) => {
 
 const saveSettings = async () => {
     const username = settingsUsername.value.trim();
+    const roomId = settingsRoomName.value.trim();
 
     if (username.length < 1) {
         displaySettingsError("Username cannot be empty");
 
-        return;
+        return false;
+    }
+
+    if (room.isHost && roomId.length < 1) {
+        displaySettingsError("Room ID cannot be empty");
+
+        return false;
     }
 
     await chrome.runtime.sendMessage({
@@ -115,14 +164,26 @@ const saveSettings = async () => {
         username,
     });
 
+    if (room.isHost) {
+        await chrome.runtime.sendMessage({
+            action: "set-room-id",
+            roomId,
+        });
+    }
+
+    user.username = username;
+    await refreshRoom();
+
     settingsModalError.style.display = "none";
+
+    return true;
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
     const messageInput = document.getElementById("messageInput");
     const sendBtn = document.getElementById("sendBtn");
     const closeBtn = document.getElementById("closeBtn");
-    const roomName = document.getElementById("room-name");
+    roomName = document.getElementById("room-name");
 
     const settingsBtn = document.getElementById("settingsBtn");
     const settingsModal = document.getElementById("settings-modal");
@@ -130,9 +191,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     settingsSaveBtn = document.getElementById("settings-modal-save");
     settingsUsername = document.getElementById("settings-username");
     settingsModalError = document.getElementById("settings-modal-error");
+    settingsRoomName = document.getElementById("settings-room-name");
+    dataHostOnlys = document.querySelectorAll("[data-host-only]");
 
     settingsBtn.addEventListener("click", async () => {
-        await loadSettings();
+        loadSettings();
 
         settingsModal.style.display = "block";
     });
@@ -142,7 +205,40 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
 
     settingsSaveBtn.addEventListener("click", async () => {
-        await saveSettings();
+        settingsSaveBtn.disabled = true;
+        settingsSaveBtn.textContent = "Saving...";
+
+        const success = await saveSettings();
+
+        if (success) {
+            settingsSaveBtn.classList.add("success");
+            settingsSaveBtn.textContent = "Saved!";
+
+            setTimeout(() => {
+                settingsSaveBtn.classList.remove("success");
+                settingsSaveBtn.disabled = false;
+                settingsSaveBtn.textContent = "Save";
+            }, 1500);
+
+            return;
+        }
+
+        settingsSaveBtn.classList.add("error");
+        settingsSaveBtn.textContent = "Failed";
+
+        setTimeout(() => {
+            settingsSaveBtn.classList.remove("error");
+            settingsSaveBtn.disabled = false;
+            settingsSaveBtn.textContent = "Save";
+        }, 1500);
+    });
+
+    roomName.addEventListener("click", (event) => {
+        if (!navigator.clipboard) {
+            return;
+        }
+
+        navigator.clipboard.writeText(roomName.textContent);
     });
 
     // Send message on button click
@@ -155,7 +251,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                 message,
             });
 
-            addMessage("You", message);
+            addMessage(user.username + " (You)", message);
             messageInput.value = "";
         }
     });
@@ -169,7 +265,7 @@ document.addEventListener("DOMContentLoaded", async () => {
                     message,
                 });
 
-                addMessage("You", message);
+                addMessage(user.username + " (You)", message);
                 messageInput.value = "";
             }
         }
@@ -179,11 +275,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         destroyChat();
     });
 
-    const currentRoom = await getCurrentRoom();
+    user = await chrome.runtime.sendMessage({
+        action: "get-user",
+    });
 
-    if (currentRoom) {
-        roomName.textContent = currentRoom.id;
-    }
+    await refreshRoom();
+
+    addServerMessage(
+        "Welcome to the chat! Currently " +
+            room.users.length +
+            " users connected"
+    );
 
     setInterval(async () => {
         const isDisc = await isDisconnected();

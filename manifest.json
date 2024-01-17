@@ -13,7 +13,7 @@
         "48": "icons/base.png",
         "128": "icons/base.png"
     },
-    "permissions": ["scripting", "tabs", "storage"],
+    "permissions": ["scripting", "tabs", "storage", "clipboardWrite"],
     "host_permissions": ["*://*/*"],
     "background": {
         "service_worker": "service-worker.js",

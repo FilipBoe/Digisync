@@ -128,8 +128,6 @@ const createButtonHomeSectionClick = async () => {
 
     injectPageWithChat();
 
-    console.log("created room " + partyIdInput.value);
-
     renderPartySection(partyIdInput.value, true, 1);
 };
 
@@ -142,6 +140,8 @@ const dataQuitsClickPartySection = async () => {
 };
 
 const injectPageWithChat = () => {
+    window.close();
+
     const extensionsId = chrome.runtime.id;
 
     // append the iframe to currently active tab
@@ -163,6 +163,7 @@ const injectPageWithChat = () => {
                 iframe.style.right = "0";
                 iframe.style.border = "none";
                 iframe.id = "chat-iframe";
+                iframe.allow = "clipboard-write;";
 
                 const checkExist = document.getElementById("chat-iframe");
 
@@ -194,6 +195,8 @@ const injectPageWithChat = () => {
     });
 };
 
+let latestJoinButtonHomeSectionClickCallback = null;
+
 const renderHomeSection = (errorMsg, roomId = "") => {
     hideSections();
 
@@ -201,9 +204,19 @@ const renderHomeSection = (errorMsg, roomId = "") => {
         el.innerText = myData.username;
     });
 
+    if (latestJoinButtonHomeSectionClickCallback) {
+        joinButton.removeEventListener(
+            "click",
+            latestJoinButtonHomeSectionClickCallback
+        );
+    }
+
+    latestJoinButtonHomeSectionClickCallback = () =>
+        joinButtonHomeSectionClick(roomId);
+
     joinButton.addEventListener(
         "click",
-        () => joinButtonHomeSectionClick(roomId),
+        latestJoinButtonHomeSectionClickCallback,
         {
             once: true,
         }

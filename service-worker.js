@@ -13,7 +13,9 @@ const getResp = (event, data) => {
 };
 
 const createBadge = () => {
-    chrome.action.setBadgeText({ text: "ON" });
+    const text = currentRoom?.users?.length ?? "ON";
+
+    chrome.action.setBadgeText({ text: text.toString() });
     chrome.action.setBadgeBackgroundColor({ color: "#4688F1" });
 };
 
@@ -62,10 +64,13 @@ if (!socket || !socket.connected) {
             action: "chat:user-joined",
             username: user.username,
         });
+
+        createBadge();
     });
 
     socket.on("user-left", (user) => {
-        currentRoom.users = currentRoom.users.filter((u) => u.id !== user.id);
+        currentRoom.users =
+            currentRoom?.users.filter((u) => u.id !== user.id) ?? [];
 
         chrome.runtime.sendMessage({
             action: "rerender-user-count",
@@ -76,6 +81,8 @@ if (!socket || !socket.connected) {
             action: "chat:user-left",
             username: user.username,
         });
+
+        createBadge();
     });
 
     socket.on("party-closed", () => {
@@ -100,6 +107,37 @@ if (!socket || !socket.connected) {
         });
     });
 
+    socket.on("user-updated", (user) => {
+        const oldUser = currentRoom.users.find((u) => u.id === user.id);
+
+        currentRoom.users = currentRoom.users.map((u) => {
+            if (u.id === user.id) {
+                return user;
+            }
+
+            return u;
+        });
+
+        chrome.runtime.sendMessage({
+            action: "chat:user-updated",
+            oldUser,
+            newUser: user,
+        });
+    });
+
+    socket.on("party-updated", (party) => {
+        currentRoom.id = party.id;
+
+        chrome.runtime.sendMessage({
+            action: "chat:party-updated",
+            party,
+        });
+
+        chrome.runtime.sendMessage({
+            action: "popup:reset",
+        });
+    });
+
     myData = {
         id: socket.id,
         username: Math.random().toString(36).substring(7),
@@ -120,8 +158,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === "party-exists") {
-        console.log(request.id);
-
         getResp("party-exists", {
             partyId: request.id,
         }).then((resp) => {
@@ -168,6 +204,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "set-username") {
         myData.username = request.username;
 
+        socket.emit("update-user", {
+            username: request.username,
+        });
+
+        return;
+    }
+
+    if (request.action === "set-room-id") {
+        currentRoom.id = request.roomId;
+
+        socket.emit("update-party", {
+            id: request.roomId,
+        });
+
         return;
     }
 
@@ -182,10 +232,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 users: resp.users,
             };
 
+            createBadge();
+
             sendResponse(currentRoom);
         });
-
-        createBadge();
 
         return true;
     }
